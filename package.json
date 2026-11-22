@@ -1,0 +1,13 @@
+{
+  "name": "ressoa",
+  "version": "1.0.0",
+  "description": "Chamadas de voz, vídeo e compartilhamento de tela organizadas em servidores e canais.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

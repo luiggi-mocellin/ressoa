@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ressoa</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232dd4bf'/%3E%3Cpath d='M9 19v-6M13 22V10M17 20v-8M21 17v-2' stroke='%230b0d12' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Tela de entrada -->
+  <div id="login" class="login">
+    <form id="login-form" class="login-card">
+      <div class="brand">
+        <span class="brand-mark"><i></i><i></i><i></i><i></i></span>
+        <span>Ressoa</span>
+      </div>
+      <p class="muted">Chamadas de voz, vídeo e tela organizadas em servidores.</p>
+      <label for="login-name">Como você quer ser chamado?</label>
+      <input id="login-name" maxlength="32" placeholder="Seu nome" autocomplete="nickname" required />
+      <button class="btn primary" type="submit">Entrar</button>
+    </form>
+  </div>
+
+  <div id="app" class="app" hidden>
+    <!-- Barra de servidores -->
+    <nav id="rail" class="rail" aria-label="Servidores"></nav>
+
+    <!-- Canais -->
+    <aside class="sidebar">
+      <header class="sidebar-head">
+        <h1 id="server-name">—</h1>
+        <button id="invite-btn" class="icon-btn" title="Copiar convite"></button>
+        <button id="server-menu-btn" class="icon-btn" title="Excluir servidor"></button>
+      </header>
+      <div class="section-title">
+        <span>Canais de voz</span>
+        <button id="add-channel" class="icon-btn sm" title="Criar canal"></button>
+      </div>
+      <ul id="channels" class="channels"></ul>
+
+      <div id="voice-status" class="voice-status" hidden>
+        <div>
+          <div class="vs-title"><span class="dot"></span> Voz conectada</div>
+          <div id="vs-where" class="vs-where"></div>
+        </div>
+        <button id="vs-leave" class="icon-btn danger" title="Desconectar"></button>
+      </div>
+
+      <div class="me-panel">
+        <div id="me-avatar" class="avatar sm"></div>
+        <div class="me-name">
+          <strong id="me-name"></strong>
+          <span id="me-sub" class="muted">online</span>
+        </div>
+        <button id="me-mic" class="icon-btn" title="Silenciar microfone"></button>
+        <button id="me-deaf" class="icon-btn" title="Desativar áudio"></button>
+      </div>
+    </aside>
+
+    <!-- Palco -->
+    <main class="main">
+      <header class="main-head">
+        <span id="channel-icon" class="channel-icon"></span>
+        <h2 id="channel-name">—</h2>
+        <span id="channel-count" class="pill"></span>
+        <div class="spacer"></div>
+        <button id="toggle-chat" class="icon-btn" title="Mostrar/ocultar chat"></button>
+      </header>
+
+      <section id="stage" class="stage"></section>
+
+      <div id="controls" class="controls" hidden>
+        <button id="c-mic" class="ctl" title="Microfone"></button>
+        <button id="c-cam" class="ctl" title="Câmera"></button>
+        <button id="c-screen" class="ctl" title="Compartilhar tela"></button>
+        <button id="c-leave" class="ctl danger" title="Sair da chamada"></button>
+      </div>
+    </main>
+
+    <!-- Chat -->
+    <aside id="chat" class="chat">
+      <header class="chat-head">Chat do canal <button id="chat-close" class="icon-btn chat-close" title="Fechar chat"></button></header>
+      <div id="messages" class="messages"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" maxlength="2000" placeholder="Enviar mensagem…" autocomplete="off" />
+      </form>
+    </aside>
+  </div>
+
+  <dialog id="modal" class="modal">
+    <form method="dialog" id="modal-form">
+      <h3 id="modal-title"></h3>
+      <p id="modal-text" class="muted"></p>
+      <input id="modal-input" maxlength="40" />
+      <menu>
+        <button value="ok" id="modal-ok" class="btn primary">Criar</button>
+        <button value="cancel" class="btn ghost" formnovalidate>Cancelar</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="audio-sink" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

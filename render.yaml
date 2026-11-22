@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: ressoa
+    runtime: node
+    plan: free
+    buildCommand: echo "sem dependencias"
+    startCommand: node server.js
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Opcional: servidor TURN para redes que bloqueiam conexão direta.
+      - key: TURN_URLS
+        sync: false
+      - key: TURN_USERNAME
+        sync: false
+      - key: TURN_CREDENTIAL
+        sync: false
