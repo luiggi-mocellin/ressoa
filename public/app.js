@@ -385,7 +385,10 @@ function closeMic() {
   unwatchLevel('me');
 }
 
-// Saída: cada faixa recebida -> ganho próprio (volume da pessoa ou da tela) -> ganho geral.
+// Saída. Até 100% o som toca por um elemento <audio> comum: é o caminho que o
+// cancelamento de eco do navegador "escuta", então quem está sem fone não
+// devolve a sua voz para você. Acima de 100% (reforço) o som passa pelo
+// Web Audio, que consegue amplificar, mas aí o cancelamento de eco pode falhar.
 let master = null;
 function masterGain() {
   const ac = ctx();
@@ -394,7 +397,8 @@ function masterGain() {
     master.connect(ac.destination);
     if (S.cfg.outId && ac.setSinkId) ac.setSinkId(S.cfg.outId).catch(() => {});
   }
-  master.gain.value = S.deafened ? 0 : S.cfg.outVol;
+  master.gain.value = 1;
+  for (const p of S.peers.values()) applyVolumes(p);
   return master;
 }
 
@@ -402,7 +406,25 @@ function applyVolumes(p) {
   const pref = prefFor(p.name);
   for (const a of Object.values(p.audio)) {
     const isScreen = a.streamId === p.state.screenStreamId;
-    a.gain.gain.value = pref.m ? 0 : isScreen ? pref.s : pref.v;
+    const own = pref.m ? 0 : isScreen ? pref.s : pref.v;
+    const eff = S.deafened ? 0 : own * S.cfg.outVol;
+    if (eff <= 1) {
+      a.el.muted = eff === 0;
+      a.el.volume = eff;
+      a.gain.gain.value = 0;
+    } else {
+      a.el.muted = true;
+      a.gain.gain.value = eff;
+    }
+    if (a.el.paused) a.el.play().catch(() => {});
+  }
+}
+
+function applySink(id) {
+  for (const p of S.peers.values()) {
+    for (const a of Object.values(p.audio)) {
+      if (a.el.setSinkId) a.el.setSinkId(id || '').catch(() => {});
+    }
   }
 }
 
@@ -468,7 +490,8 @@ async function toggleScreen() {
     const st = await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: { ideal: q.frameRate, max: q.frameRate }, width: { ideal: q.width }, height: { ideal: q.height } },
       // Áudio da aba/sistema sem nenhum filtro de voz: é música, jogo ou vídeo.
-      audio: S.cfg.screenAudio ? { ...RAW_AUDIO, channelCount: 2, suppressLocalAudioPlayback: false } : false,
+      // restrictOwnAudio: no Chrome/Edge, deixa de fora o som desta própria página (as vozes da chamada).
+      audio: S.cfg.screenAudio ? { ...RAW_AUDIO, channelCount: 2, suppressLocalAudioPlayback: false, restrictOwnAudio: true } : false,
     });
     if (!S.voiceChannel) { st.getTracks().forEach((t) => t.stop()); return; }
     for (const t of st.getAudioTracks()) {
@@ -607,16 +630,16 @@ function createPeer(info) {
     const stream = streams[0] || new MediaStream([track]);
     p.streams[stream.id] = stream;
     if (track.kind === 'audio' && !p.audio[track.id]) {
-      // O Chrome só "liga" o áudio WebRTC no Web Audio se ele também estiver
-      // preso a um elemento de mídia; o elemento fica mudo e o som sai pelo ganho.
+      // Elemento <audio>: toca o som normalmente (e serve de referência para o
+      // cancelamento de eco). O ramo Web Audio fica em 0 e só entra no reforço >100%.
       const el = h('audio', { autoplay: true });
-      el.muted = true;
       el.srcObject = new MediaStream([track]);
       $('#audio-sink').append(el);
-      el.play().catch(() => {});
+      if (S.cfg.outId && el.setSinkId) el.setSinkId(S.cfg.outId).catch(() => {});
       const ac = ctx();
       const src = ac.createMediaStreamSource(new MediaStream([track]));
       const gain = ac.createGain();
+      gain.gain.value = 0;
       src.connect(gain).connect(masterGain());
       p.audio[track.id] = { el, src, gain, streamId: stream.id };
       applyVolumes(p);
@@ -1164,6 +1187,7 @@ function bindSettings() {
     saveCfg({ outId: e.target.value });
     const ac = ctx();
     if (ac.setSinkId) ac.setSinkId(e.target.value || '').catch(() => toast('Não foi possível usar essa saída de áudio.'));
+    applySink(e.target.value);
   };
   $('#set-quality').onchange = (e) => {
     saveCfg({ screenQuality: e.target.value });
