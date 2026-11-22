@@ -55,6 +55,7 @@
         </div>
         <button id="me-mic" class="icon-btn" title="Silenciar microfone"></button>
         <button id="me-deaf" class="icon-btn" title="Desativar áudio"></button>
+        <button id="me-settings" class="icon-btn" title="Configurações de áudio e vídeo"></button>
       </div>
     </aside>
 
@@ -99,6 +100,53 @@
       </menu>
     </form>
   </dialog>
+
+  <dialog id="settings" class="modal settings">
+    <form method="dialog">
+      <h3>Configurações</h3>
+
+      <fieldset>
+        <legend>Entrada</legend>
+        <label for="set-mic">Microfone</label>
+        <select id="set-mic"></select>
+        <div class="row-label"><label for="set-micgain">Volume do microfone</label><output id="set-micgain-out"></output></div>
+        <input id="set-micgain" type="range" min="0" max="200" step="5" />
+        <div id="set-meter" class="meter" title="Nível do seu microfone (aparece durante a chamada)"><i></i></div>
+        <label class="check"><input id="set-noise" type="checkbox" /> Supressão de ruído</label>
+        <label class="check"><input id="set-echo" type="checkbox" /> Cancelamento de eco</label>
+        <label class="check"><input id="set-agc" type="checkbox" /> Ganho automático do microfone</label>
+        <small class="muted">Esses três filtros valem só para a sua voz. Para tocar instrumento ou cantar, desligue-os e use fone de ouvido. O áudio da tela compartilhada é sempre enviado sem filtros.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Saída</legend>
+        <div id="set-out-row">
+          <label for="set-out">Fone / alto-falante</label>
+          <select id="set-out"></select>
+        </div>
+        <div class="row-label"><label for="set-outvol">Volume geral</label><output id="set-outvol-out"></output></div>
+        <input id="set-outvol" type="range" min="0" max="200" step="5" />
+        <small class="muted">Para ajustar uma pessoa ou a tela dela, clique no nome dela na lista do canal ou no ícone de volume do bloco de vídeo.</small>
+      </fieldset>
+
+      <fieldset>
+        <legend>Compartilhamento de tela</legend>
+        <label for="set-quality">Qualidade</label>
+        <select id="set-quality">
+          <option value="720p30">720p · 30 fps (internet fraca)</option>
+          <option value="1080p30">1080p · 30 fps (padrão)</option>
+          <option value="1080p60">1080p · 60 fps (jogos)</option>
+          <option value="1440p60">1440p · 60 fps (internet muito boa)</option>
+        </select>
+        <label class="check"><input id="set-screenaudio" type="checkbox" /> Transmitir o áudio da tela</label>
+      </fieldset>
+
+      <p id="set-labels-hint" class="muted">Entre numa chamada para ver os nomes dos seus dispositivos.</p>
+      <menu><button value="close" class="btn primary">Pronto</button></menu>
+    </form>
+  </dialog>
+
+  <div id="userpop" class="popover" role="dialog" aria-label="Volume da pessoa" hidden></div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <div id="audio-sink" hidden></div>
