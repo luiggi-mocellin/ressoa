@@ -360,7 +360,9 @@ async function openMic() {
   if (!S.micGraph) {
     const gain = ac.createGain();
     const dest = ac.createMediaStreamDestination();
-    gain.connect(dest);
+    // Limitador: com volume do microfone acima de 100% ou voz/grave muito forte,
+    // evita que o sinal estoure (o estouro vira um chiado áspero, pior nos graves).
+    gain.connect(makeLimiter(ac)).connect(dest);
     S.micGraph = { gain, dest };
     S.micStream = dest.stream;
     S.mic = dest.stream.getAudioTracks()[0];
@@ -375,6 +377,16 @@ async function openMic() {
   S.micSrc.connect(S.micGraph.gain);
   S.micGraph.gain.value = S.cfg.micGain;
   applyMute();
+}
+
+function makeLimiter(ac) {
+  const c = ac.createDynamicsCompressor();
+  c.threshold.value = -3;
+  c.knee.value = 0;
+  c.ratio.value = 20;
+  c.attack.value = 0.002;
+  c.release.value = 0.12;
+  return c;
 }
 
 function closeMic() {
@@ -394,7 +406,7 @@ function masterGain() {
   const ac = ctx();
   if (!master) {
     master = ac.createGain();
-    master.connect(ac.destination);
+    master.connect(makeLimiter(ac)).connect(ac.destination); // reforço >100% sem estourar
     if (S.cfg.outId && ac.setSinkId) ac.setSinkId(S.cfg.outId).catch(() => {});
   }
   master.gain.value = 1;
@@ -533,11 +545,29 @@ function setAudioBitrate(sender, bps) {
     const params = sender.getParameters();
     if (!params.encodings || !params.encodings.length) params.encodings = [{}];
     params.encodings[0].maxBitrate = bps;
+    params.encodings[0].priority = 'high';
+    params.encodings[0].networkPriority = 'high';
     sender.setParameters(params).catch(() => {});
   } catch {}
 }
 
+// Tira o áudio do controle de banda (transport-cc). Sem isso, quando a internet de
+// quem envia aperta, o navegador derruba o áudio para ~6–16 kbps para dar espaço ao
+// vídeo da tela, e música/jogo viram um som "embaixo d'água". Assim o áudio fica fixo
+// na qualidade configurada e só o vídeo se adapta.
+function audioOutOfBwe(sdp) {
+  const parts = sdp.split(/(?=^m=)/m);
+  return parts.map((sec) => {
+    if (!sec.startsWith('m=audio')) return sec;
+    return sec
+      .split(/\r?\n/)
+      .filter((l) => !/^a=rtcp-fb:\d+ transport-cc/.test(l) && !/^a=extmap:\d+ \S*transport-wide-cc/.test(l))
+      .join('\r\n');
+  }).join('');
+}
+
 function tuneSdp(sdp) {
+  sdp = audioOutOfBwe(sdp);
   // Cada canal de áudio (voz, tela) tem sua própria linha: ajusta todas (flag g).
   const pts = [...new Set([...sdp.matchAll(/a=rtpmap:(\d+) opus\/48000\/2/gi)].map((m) => m[1]))];
   for (const pt of pts) {
