@@ -316,6 +316,26 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
 .tile:hover .tile-tools, .tile:focus-within .tile-tools { opacity: 1; }
 .tile-tools .icon-btn { background: rgba(0,0,0,.55); color: white; }
 .tile-tools .icon-btn:hover { background: rgba(0,0,0,.75); }
+.tile.unwatched { cursor: default; }
+.tile.unwatched .stop-watch { display: none; }
+.watch-off { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 12px; }
+.watch-off .btn { justify-self: center; }
+
+/* ---------- diagnóstico ---------- */
+.diag {
+  position: fixed; right: 16px; bottom: 16px; z-index: 35; width: min(720px, calc(100vw - 32px));
+  max-height: 60vh; overflow-y: auto; display: grid; gap: 10px; padding: 12px 14px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.45);
+  font-size: 12px;
+}
+.diag header { display: flex; align-items: center; gap: 8px; }
+.diag header b { flex: 1; font-size: 13px; }
+.diag section { display: grid; gap: 6px; }
+.diag-scroll { overflow-x: auto; }
+.diag table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.diag th, .diag td { text-align: left; padding: 3px 8px; white-space: nowrap; border-bottom: 1px solid var(--line); }
+.diag th { color: var(--muted); font-weight: 600; }
+.diag td.bad { color: var(--danger); font-weight: 700; }
 
 .toasts { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); display: grid; gap: 8px; z-index: 50; pointer-events: none; }
 .toast {

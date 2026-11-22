@@ -141,12 +141,23 @@
         <label class="check"><input id="set-screenaudio" type="checkbox" /> Transmitir o áudio da tela</label>
       </fieldset>
 
+      <button type="button" id="set-diag" class="btn ghost sm">Mostrar diagnóstico da conexão (Ctrl+Shift+D)</button>
       <p id="set-labels-hint" class="muted">Entre numa chamada para ver os nomes dos seus dispositivos.</p>
       <menu><button value="close" class="btn primary">Pronto</button></menu>
     </form>
   </dialog>
 
   <div id="userpop" class="popover" role="dialog" aria-label="Volume da pessoa" hidden></div>
+
+  <div id="diag" class="diag" role="dialog" aria-label="Diagnóstico da conexão" hidden>
+    <header>
+      <b>Diagnóstico da conexão</b>
+      <button id="diag-copy" class="btn ghost sm" type="button">Copiar</button>
+      <button id="diag-close" class="icon-btn sm" type="button" title="Fechar"></button>
+    </header>
+    <div id="diag-body"></div>
+    <small class="muted">Valores em vermelho indicam problema. "Remendado" e "esticado" altos deixam o som borbulhado.</small>
+  </div>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
   <div id="audio-sink" hidden></div>

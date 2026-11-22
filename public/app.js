@@ -57,6 +57,7 @@ const I = {
   expand: svg('<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>'),
   gear: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
   vol: svg('<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/>'),
+  eyeOff: svg('<path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.1A10 10 0 0 1 12 5c5 0 9 4.5 10 7a13 13 0 0 1-3 4.2M6.6 6.6A13 13 0 0 0 2 12c1 2.5 5 7 10 7a9.8 9.8 0 0 0 5.4-1.6"/>'),
   volOff: svg('<path d="M11 5L6 9H3v6h3l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/>'),
 };
 
@@ -129,6 +130,7 @@ const S = {
   messages: {},
   unread: {},
   focus: null,
+  unwatched: new Set(), // pessoas cuja tela eu parei de assistir
   tiles: new Map(),
   levels: new Map(), // chave -> { analyser, data }
   speaking: new Set(),
@@ -155,10 +157,12 @@ function setPref(name, patch) {
 }
 
 const SCREEN_QUALITY = {
-  '720p30': { width: 1280, height: 720, frameRate: 30, bitrate: 2_500_000 },
-  '1080p30': { width: 1920, height: 1080, frameRate: 30, bitrate: 4_000_000 },
-  '1080p60': { width: 1920, height: 1080, frameRate: 60, bitrate: 8_000_000 },
-  '1440p60': { width: 2560, height: 1440, frameRate: 60, bitrate: 12_000_000 },
+  // Tetos moderados: vídeo que lota o upload de quem compartilha atrasa e
+  // embaralha os pacotes de áudio, e o som do outro lado fica "embaixo d'água".
+  '720p30': { width: 1280, height: 720, frameRate: 30, bitrate: 1_500_000 },
+  '1080p30': { width: 1920, height: 1080, frameRate: 30, bitrate: 2_500_000 },
+  '1080p60': { width: 1920, height: 1080, frameRate: 60, bitrate: 4_500_000 },
+  '1440p60': { width: 2560, height: 1440, frameRate: 60, bitrate: 7_000_000 },
 };
 
 const server = () => S.servers.find((s) => s.id === S.serverId);
@@ -232,8 +236,12 @@ function onMessage(m) {
       const p = S.peers.get(m.id);
       if (p) {
         const hadScreen = p.state.screen;
+        const oldScreenId = p.state.screenStreamId;
         p.state = m.state || {};
+        // Compartilhamento novo (ou encerrado): volta a assistir por padrão.
+        if (p.state.screenStreamId !== oldScreenId) S.unwatched.delete(p.id);
         applyVolumes(p);
+        tuneReceivers(p);
         if (!hadScreen && p.state.screen && !S.focus) S.focus = `${p.id}:screen`;
         renderStage();
       }
@@ -432,6 +440,23 @@ function applyVolumes(p) {
   }
 }
 
+// Buffer de chegada maior para a tela (áudio + vídeo juntos, para não dessincronizar).
+// Com folga, o navegador não precisa "esticar/encolher" o som quando os pacotes chegam
+// irregulares — esse esticar é o que soa borbulhado em música e jogo. A voz fica no
+// automático para a conversa continuar sem atraso.
+const SCREEN_BUFFER_MS = 200;
+function tuneReceivers(p) {
+  const screen = p.state.screen && p.streams[p.state.screenStreamId];
+  const screenTracks = new Set(screen ? screen.getTracks().map((t) => t.id) : []);
+  for (const r of p.pc.getReceivers()) {
+    if (!r.track || !('jitterBufferTarget' in r)) continue;
+    const want = screenTracks.has(r.track.id) ? SCREEN_BUFFER_MS : null;
+    if (r.jitterBufferTarget !== want) {
+      try { r.jitterBufferTarget = want; } catch {}
+    }
+  }
+}
+
 function applySink(id) {
   for (const p of S.peers.values()) {
     for (const a of Object.values(p.audio)) {
@@ -516,7 +541,10 @@ async function toggleScreen() {
       video.contentHint = 'detail';
       video.onended = () => stopScreen();
     }
-    for (const p of S.peers.values()) addScreenTracks(p);
+    for (const p of S.peers.values()) {
+      p.watchOff = false; // compartilhamento novo: todos voltam a receber
+      addScreenTracks(p);
+    }
     S.focus = 'me:screen';
   } catch (e) {
     if (e && e.name !== 'NotAllowedError') toast('Não foi possível compartilhar a tela.');
@@ -530,9 +558,45 @@ function addScreenTracks(p) {
   for (const t of S.screenStream.getTracks()) {
     const sender = p.pc.addTrack(t, S.screenStream);
     p.senders[`screen-${t.kind}`] = sender;
-    if (t.kind === 'video') tuneScreenSender(sender);
-    else setAudioBitrate(sender, 160_000);
+    if (t.kind === 'video') {
+      preferLightCodec(p.pc, sender);
+      tuneScreenSender(sender);
+    } else {
+      setAudioBitrate(sender, 160_000);
+    }
   }
+  if (p.watchOff) applyWatch(p);
+}
+
+// Quem parou de assistir não recebe mais a tela: o envio para essa pessoa é
+// pausado (economiza a internet e o processador de quem compartilha).
+function applyWatch(p) {
+  for (const key of ['screen-video', 'screen-audio']) {
+    const sender = p.senders[key];
+    if (!sender) continue;
+    const kind = key.split('-')[1];
+    const track = p.watchOff || !S.screenStream ? null : S.screenStream.getTracks().find((t) => t.kind === kind) || null;
+    if (sender.track !== track) sender.replaceTrack(track).catch(() => {});
+  }
+}
+
+// H.264 primeiro para a tela: o Windows costuma codificá-lo na placa de vídeo, o que
+// tira peso do processador de quem está jogando e compartilhando ao mesmo tempo.
+function preferLightCodec(pc, sender) {
+  try {
+    const tr = pc.getTransceivers().find((t) => t.sender === sender);
+    if (!tr || !tr.setCodecPreferences || !RTCRtpReceiver.getCapabilities) return;
+    const codecs = RTCRtpReceiver.getCapabilities('video').codecs;
+    const rank = (c) => {
+      const m = c.mimeType.toLowerCase();
+      if (m === 'video/h264') return /packetization-mode=1/.test(c.sdpFmtpLine || '') ? 0 : 1;
+      if (m === 'video/vp8') return 2;
+      if (m === 'video/vp9') return 3;
+      if (m === 'video/av1') return 4;
+      return 5; // rtx, red, ulpfec ficam no fim
+    };
+    tr.setCodecPreferences([...codecs].sort((a, b) => rank(a) - rank(b)));
+  } catch {}
 }
 
 // Sem isto o navegador trata tudo como voz em mono e ~32 kbps, o que
@@ -566,8 +630,30 @@ function audioOutOfBwe(sdp) {
   }).join('');
 }
 
+// O navegador começa o vídeo com ~300 kbps e sobe aos poucos; enquanto isso a tela
+// fica borrada/quadriculada. Começar em 1,2 Mbps deixa a imagem nítida bem mais rápido
+// (se a internet não aguentar, o controle de banda reduz sozinho).
+const VIDEO_START_KBPS = 1200;
+function videoStartBitrate(sdp) {
+  return sdp.split(/(?=^m=)/m).map((sec) => {
+    if (!sec.startsWith('m=video')) return sec;
+    const pts = [...sec.matchAll(/^a=rtpmap:(\d+) (VP8|VP9|H264|AV1)\/90000/gim)].map((m) => m[1]);
+    for (const pt of pts) {
+      const fmtp = new RegExp(`^a=fmtp:${pt} ([^\\r\\n]*)`, 'm');
+      if (fmtp.test(sec)) {
+        sec = sec.replace(fmtp, (line, params) =>
+          /x-google-start-bitrate/.test(params) ? line : `a=fmtp:${pt} ${params};x-google-start-bitrate=${VIDEO_START_KBPS}`);
+      } else {
+        sec = sec.replace(new RegExp(`^(a=rtpmap:${pt} [^\\r\\n]*\\r?\\n)`, 'm'), `$1a=fmtp:${pt} x-google-start-bitrate=${VIDEO_START_KBPS}\r\n`);
+      }
+    }
+    return sec;
+  }).join('');
+}
+
 function tuneSdp(sdp) {
   sdp = audioOutOfBwe(sdp);
+  sdp = videoStartBitrate(sdp);
   // Cada canal de áudio (voz, tela) tem sua própria linha: ajusta todas (flag g).
   const pts = [...new Set([...sdp.matchAll(/a=rtpmap:(\d+) opus\/48000\/2/gi)].map((m) => m[1]))];
   for (const pt of pts) {
@@ -678,6 +764,7 @@ function createPeer(info) {
       if (isMic && !S.levels.has(p.id)) watchLevel(p.id, new MediaStream([track]));
     }
     stream.onremovetrack = () => renderStage();
+    tuneReceivers(p);
     renderStage();
   };
 
@@ -697,9 +784,15 @@ function onSignal(from, data) {
   p.queue = p.queue.then(() => handleSignal(p, data)).catch((e) => console.warn('sinal', e));
 }
 
-async function handleSignal(p, { description, candidate }) {
+async function handleSignal(p, { description, candidate, watch }) {
   const pc = p.pc;
   if (pc.signalingState === 'closed') return;
+  if (typeof watch === 'boolean') {
+    // A outra pessoa parou (ou voltou) de assistir a minha tela.
+    p.watchOff = !watch;
+    applyWatch(p);
+    return;
+  }
   if (description) {
     const collision = description.type === 'offer' && (p.makingOffer || pc.signalingState !== 'stable');
     p.ignoreOffer = !p.polite && collision;
@@ -728,6 +821,7 @@ function closePeer(id) {
     a.el.remove();
   }
   unwatchLevel(id);
+  S.unwatched.delete(id);
   S.peers.delete(id);
   if (S.focus && S.focus.startsWith(id + ':')) S.focus = null;
 }
@@ -965,10 +1059,12 @@ function renderStage() {
     const pref = prefFor(p.name);
     tiles.push({ key: `${p.id}:cam`, name: p.name, person: p.name, stream: liveVideo(cam), muted: st.muted, localOff: pref.m || pref.v === 0 });
     if (st.screen && st.screenStreamId) {
+      const unwatched = S.unwatched.has(p.id);
       tiles.push({
-        key: `${p.id}:screen`, name: `Tela de ${p.name}`, person: p.name,
-        stream: liveVideo(p.streams[st.screenStreamId]), screen: true, localOff: pref.m || pref.s === 0,
+        key: `${p.id}:screen`, name: `Tela de ${p.name}`, person: p.name, peerId: p.id, unwatched,
+        stream: unwatched ? null : liveVideo(p.streams[st.screenStreamId]), screen: true, localOff: pref.m || pref.s === 0,
       });
+      if (unwatched && S.focus === `${p.id}:screen`) S.focus = null;
     }
   }
 
@@ -1008,6 +1104,16 @@ function renderStage() {
   }
 }
 
+function setWatching(peerId, on) {
+  if (!S.peers.has(peerId)) return;
+  if (on) S.unwatched.delete(peerId);
+  else S.unwatched.add(peerId);
+  if (on) S.focus = `${peerId}:screen`;
+  else if (S.focus === `${peerId}:screen`) S.focus = null;
+  send({ t: 'signal', to: peerId, data: { watch: on } });
+  renderStage();
+}
+
 function liveVideo(stream) {
   if (!stream) return null;
   return stream.getVideoTracks().some((t) => t.readyState === 'live') ? stream : null;
@@ -1020,13 +1126,26 @@ function updateTile(t) {
     video.muted = true; // o áudio sai pelos elementos <audio>
     el = h(
       'div',
-      { class: 'tile', 'data-key': t.key, onclick: () => { S.focus = S.focus === t.key ? null : t.key; renderStage(); } },
+      {
+        class: 'tile', 'data-key': t.key,
+        onclick: () => {
+          if (el.classList.contains('unwatched')) return;
+          S.focus = S.focus === t.key ? null : t.key;
+          renderStage();
+        },
+      },
       video,
       h('div', { class: 'face' }),
       h('div', { class: 'label' }),
       h(
         'div',
         { class: 'tile-tools' },
+        t.peerId && t.screen && h('button', {
+          class: 'icon-btn stop-watch',
+          title: 'Parar de assistir',
+          html: I.eyeOff,
+          onclick: (e) => { e.stopPropagation(); setWatching(t.peerId, false); },
+        }),
         t.person && h('button', {
           class: 'icon-btn',
           title: t.screen ? 'Volume da tela' : `Volume de ${t.person}`,
@@ -1049,13 +1168,24 @@ function updateTile(t) {
   el.classList.toggle('has-video', !!t.stream);
   el.classList.toggle('screen', !!t.screen);
   el.classList.toggle('mirror', !!t.mirror && !!t.stream);
+  el.classList.toggle('unwatched', !!t.unwatched);
   if (!t.screen) el.classList.toggle('speaking', S.speaking.has(t.key.startsWith('me:') ? 'me' : t.key.split(':')[0]));
 
   const face = $('.face', el);
   const faceName = t.screen ? t.name.replace(/^Tela de /, '') : t.name.replace(/ \(você\)$/, '');
-  if (face.dataset.name !== faceName) {
-    face.dataset.name = faceName;
-    face.replaceChildren(t.screen ? h('div', { class: 'muted' }, 'Carregando tela…') : avatar(faceName));
+  const faceKey = `${faceName}|${t.unwatched ? 'off' : 'on'}`;
+  if (face.dataset.key !== faceKey) {
+    face.dataset.key = faceKey;
+    if (t.unwatched) {
+      face.replaceChildren(h('div', { class: 'watch-off' },
+        h('span', { class: 'muted' }, `${faceName} está compartilhando a tela`),
+        h('button', {
+          class: 'btn primary sm',
+          onclick: (e) => { e.stopPropagation(); setWatching(t.peerId, true); },
+        }, 'Assistir')));
+    } else {
+      face.replaceChildren(t.screen ? h('div', { class: 'muted' }, 'Carregando tela…') : avatar(faceName));
+    }
   }
   const label = $('.label', el);
   label.replaceChildren(
@@ -1153,6 +1283,124 @@ function closeUserPop() { $('#userpop').hidden = true; }
 document.addEventListener('pointerdown', (e) => {
   if (!$('#userpop').hidden && !e.target.closest('#userpop')) closeUserPop();
 });
+
+// ---------------------------------------------------------------- diagnóstico da conexão
+// Mostra, a cada segundo, como o áudio e o vídeo estão chegando/saindo de cada pessoa.
+// "Remendado" = som que o navegador teve de inventar porque o pacote não chegou;
+// "Esticado" = som que precisou ser acelerado/desacelerado por pacotes irregulares.
+// Os dois soam borbulhados, "embaixo d'água".
+const diag = { on: false, prev: new Map(), timer: null, text: '' };
+const pct = (a, b) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
+const LIMIT_PT = { none: '—', bandwidth: 'internet', cpu: 'processador', other: 'outro' };
+
+function toggleDiag(force) {
+  diag.on = typeof force === 'boolean' ? force : !diag.on;
+  $('#diag').hidden = !diag.on;
+  clearInterval(diag.timer);
+  if (diag.on) {
+    updateDiag();
+    diag.timer = setInterval(updateDiag, 1000);
+  }
+}
+
+async function updateDiag() {
+  const body = $('#diag-body');
+  if (!S.peers.size) {
+    body.replaceChildren(h('p', { class: 'muted' }, 'Entre numa chamada com alguém para ver os dados.'));
+    diag.text = '';
+    return;
+  }
+  const blocks = [];
+  const textLines = [`Ressoa diagnóstico — ${new Date().toLocaleTimeString('pt-BR')} — ${S.name}`];
+  for (const p of S.peers.values()) {
+    let st;
+    try { st = await p.pc.getStats(); } catch { continue; }
+    const prev = diag.prev.get(p.id) || new Map();
+    const cur = new Map();
+    let pair = null;
+    st.forEach((r) => {
+      cur.set(r.id, r);
+      if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r;
+    });
+    const d = (r, k) => { const o = prev.get(r.id); return o ? (r[k] || 0) - (o[k] || 0) : 0; };
+    const kbps = (r, k) => {
+      const o = prev.get(r.id);
+      const t = o ? (r.timestamp - o.timestamp) / 1000 : 0;
+      return t > 0 ? Math.round((d(r, k) * 8) / t / 1000) : 0;
+    };
+    const rows = [];
+    st.forEach((r) => {
+      if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+        const a = p.audio[r.trackIdentifier];
+        const isScreen = a && a.streamId === p.state.screenStreamId;
+        const tot = d(r, 'totalSamplesReceived');
+        const pk = d(r, 'packetsReceived');
+        const lost = Math.max(0, d(r, 'packetsLost'));
+        const em = d(r, 'jitterBufferEmittedCount');
+        rows.push({
+          dir: 'Recebe', what: isScreen ? 'Som da tela' : 'Voz', kbps: kbps(r, 'bytesReceived'),
+          perda: pct(lost, pk + lost), jitter: Math.round((r.jitter || 0) * 1000),
+          buffer: em ? Math.round((d(r, 'jitterBufferDelay') / em) * 1000) : 0,
+          remendo: pct(d(r, 'concealedSamples') - d(r, 'silentConcealedSamples'), tot),
+          esticado: pct(d(r, 'insertedSamplesForDeceleration') + d(r, 'removedSamplesForAcceleration'), tot),
+        });
+      } else if (r.type === 'inbound-rtp' && r.kind === 'video') {
+        const pk = d(r, 'packetsReceived');
+        const lost = Math.max(0, d(r, 'packetsLost'));
+        rows.push({ dir: 'Recebe', what: 'Vídeo', kbps: kbps(r, 'bytesReceived'), perda: pct(lost, pk + lost), fps: Math.round(r.framesPerSecond || 0) });
+      } else if (r.type === 'outbound-rtp') {
+        const srcTrack = cur.get(r.mediaSourceId)?.trackIdentifier;
+        let what = r.kind === 'audio' ? 'Som da tela' : 'Vídeo da tela';
+        if (srcTrack && S.mic && srcTrack === S.mic.id) what = 'Voz';
+        if (srcTrack && S.cam && srcTrack === S.cam.id) what = 'Câmera';
+        rows.push({ dir: 'Envia', what, kbps: kbps(r, 'bytesSent'), limite: r.kind === 'video' ? LIMIT_PT[r.qualityLimitationReason] || '—' : null, fps: r.kind === 'video' ? Math.round(r.framesPerSecond || 0) : null });
+      }
+    });
+    diag.prev.set(p.id, cur);
+
+    const lc = pair && cur.get(pair.localCandidateId);
+    const rc = pair && cur.get(pair.remoteCandidateId);
+    const route = lc && rc ? `${lc.candidateType === 'relay' || rc.candidateType === 'relay' ? 'via TURN' : 'direta'}` : '…';
+    const rtt = pair && pair.currentRoundTripTime != null ? Math.round(pair.currentRoundTripTime * 1000) : null;
+    const avail = pair && pair.availableOutgoingBitrate ? Math.round(pair.availableOutgoingBitrate / 1000) : null;
+    const head = `${p.name} — conexão ${route}${rtt != null ? ` · ida e volta ${rtt} ms` : ''}${avail ? ` · banda para enviar ~${avail} kbps` : ''}`;
+    textLines.push('', head);
+
+    const cell = (v, bad, suffix = '') => h('td', { class: bad ? 'bad' : '' }, v == null ? '—' : `${v}${suffix}`);
+    const table = h('table', {},
+      h('thead', {}, h('tr', {}, ...['', '', 'kbps', 'perda', 'jitter', 'buffer', 'remendado', 'esticado', 'fps', 'limitado por'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, rows.map((r) => {
+        textLines.push(`  ${r.dir} ${r.what}: ${r.kbps} kbps` +
+          (r.perda != null ? `, perda ${r.perda}%` : '') + (r.jitter != null ? `, jitter ${r.jitter} ms` : '') +
+          (r.buffer != null ? `, buffer ${r.buffer} ms` : '') + (r.remendo != null ? `, remendado ${r.remendo}%` : '') +
+          (r.esticado != null ? `, esticado ${r.esticado}%` : '') + (r.fps != null ? `, ${r.fps} fps` : '') +
+          (r.limite ? `, limitado por ${r.limite}` : ''));
+        return h('tr', {},
+          h('td', {}, r.dir), h('td', {}, r.what),
+          cell(r.kbps, false),
+          cell(r.perda, r.perda > 1, r.perda != null ? '%' : ''),
+          cell(r.jitter, r.jitter > 30, r.jitter != null ? ' ms' : ''),
+          cell(r.buffer, false, r.buffer != null ? ' ms' : ''),
+          cell(r.remendo, r.remendo > 1, r.remendo != null ? '%' : ''),
+          cell(r.esticado, r.esticado > 3, r.esticado != null ? '%' : ''),
+          cell(r.fps, false),
+          cell(r.limite, r.limite && r.limite !== '—'));
+      })));
+    blocks.push(h('section', {}, h('b', {}, head), h('div', { class: 'diag-scroll' }, table)));
+  }
+  diag.text = textLines.join('\n');
+  body.replaceChildren(...blocks);
+}
+
+async function copyDiag() {
+  if (!diag.text) return;
+  try {
+    await navigator.clipboard.writeText(diag.text);
+    toast('Diagnóstico copiado. Cole na conversa com o Claude.');
+  } catch {
+    toast('Não foi possível copiar automaticamente.');
+  }
+}
 
 // ---------------------------------------------------------------- configurações
 let meterTimer = null;
@@ -1289,6 +1537,10 @@ $('#toggle-chat').innerHTML = I.chat;
 $('#chat-close').innerHTML = I.x;
 $('#me-settings').innerHTML = I.gear;
 $('#me-settings').onclick = openSettings;
+$('#set-diag').onclick = () => { $('#settings').close(); toggleDiag(true); };
+$('#diag-close').innerHTML = I.x;
+$('#diag-close').onclick = () => toggleDiag(false);
+$('#diag-copy').onclick = copyDiag;
 bindSettings();
 $('#chat-close').onclick = () => $('#app').classList.remove('chat-open');
 
@@ -1320,6 +1572,7 @@ $('#chat-form').addEventListener('submit', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea, dialog')) return;
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'm') { e.preventDefault(); toggleMute(); }
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); toggleDiag(); }
   if (e.key === 'Escape') {
     if (!$('#userpop').hidden) closeUserPop();
     else if (S.focus) { S.focus = null; renderStage(); }
