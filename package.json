@@ -4,7 +4,8 @@
   "description": "Chamadas de voz, vídeo e compartilhamento de tela organizadas em servidores e canais.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"

@@ -6,14 +6,10 @@
    "perfect negotiation" para renegociar câmera e tela).
    ================================================================== */
 
-// Padrão; substituído pelo que o servidor entregar em /config (inclui TURN, se configurado).
+// Padrão; substituído pelo que o servidor entregar no "welcome" (inclui TURN temporário, se configurado).
 let ICE_CONFIG = {
   iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }],
 };
-fetch('/config')
-  .then((r) => (r.ok ? r.json() : null))
-  .then((cfg) => { if (cfg && cfg.ice && Array.isArray(cfg.ice.iceServers)) ICE_CONFIG = cfg.ice; })
-  .catch(() => {});
 
 // ---------------------------------------------------------------- utilidades
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -179,7 +175,7 @@ let ws = null;
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => send({ t: 'hello', name: S.name });
+  ws.onopen = () => send({ t: 'hello', name: S.name, token: store('ressoa.token') });
   ws.onmessage = (e) => {
     let m;
     try { m = JSON.parse(e.data); } catch { return; }
@@ -187,6 +183,7 @@ function connect() {
   };
   ws.onclose = () => {
     if (S.voiceChannel) cleanupCall();
+    if (S.loginRejected) return; // nome recusado: volta para a tela de entrada, sem reconectar
     toast('Conexão com o servidor perdida. Reconectando…');
     setTimeout(connect, 2000);
   };
@@ -199,11 +196,32 @@ function onMessage(m) {
   switch (m.t) {
     case 'welcome': {
       S.me = m.id;
+      S.userId = m.userId;
+      if (m.token) store('ressoa.token', m.token);
+      if (m.ice && Array.isArray(m.ice.iceServers)) ICE_CONFIG = m.ice;
       S.servers = m.servers;
-      const wanted = new URLSearchParams(location.search).get('s') || store('ressoa.server');
+      const params = new URLSearchParams(location.search);
+      const invite = params.get('convite');
+      if (invite) {
+        send({ t: 'join-server', code: invite });
+        params.delete('convite'); // o código é um segredo: não deixa no histórico do navegador
+        history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
+      }
+      const wanted = params.get('s') || store('ressoa.server');
       selectServer(S.servers.some((s) => s.id === wanted) ? wanted : S.servers[0]?.id);
       break;
     }
+    case 'hello-error':
+      S.loginRejected = true;
+      ws.close();
+      $('#app').hidden = true;
+      $('#login').hidden = false;
+      toast(m.message);
+      nameInput.focus();
+      break;
+    case 'server-joined':
+      selectServer(m.id);
+      break;
     case 'snapshot':
       S.servers = m.servers;
       if (!server()) selectServer(S.servers[0]?.id);
@@ -906,6 +924,8 @@ function renderSidebar() {
   const s = server();
   if (!s) return;
   $('#server-name').textContent = s.name;
+  $('#server-menu-btn').hidden = !s.owner;
+  $('#add-channel').hidden = !s.owner;
   renderChannels();
 
   const vc = channelById(S.voiceChannel);
@@ -943,7 +963,8 @@ function renderChannels() {
           h('span', { html: I.voice, style: 'display:grid' }),
           h('span', { class: 'name' }, c.name),
           unread ? h('span', { class: 'badge' }, unread > 99 ? '99+' : unread) : null,
-          h('button', {
+          // Só conveniência visual: o servidor também recusa quem não é dono.
+          s.owner && h('button', {
             class: 'icon-btn sm del',
             title: 'Excluir canal',
             html: I.x,
@@ -1211,7 +1232,7 @@ function renderChat() {
   let prev = null;
   box.replaceChildren(
     ...list.map((m) => {
-      const cont = prev && prev.author === m.author && m.ts - prev.ts < 5 * 60 * 1000;
+      const cont = prev && prev.authorId === m.authorId && m.ts - prev.ts < 5 * 60 * 1000;
       prev = m;
       return h(
         'div',
@@ -1226,7 +1247,7 @@ function renderChat() {
       );
     })
   );
-  if (atBottom || prev?.authorId === S.me) box.scrollTop = box.scrollHeight;
+  if (atBottom || prev?.authorId === S.userId) box.scrollTop = box.scrollHeight;
 }
 
 // ---------------------------------------------------------------- volume por pessoa
@@ -1519,10 +1540,12 @@ async function deleteServer() {
   if (yes) send({ t: 'delete-server', serverId: s.id });
 }
 async function copyInvite() {
-  const url = `${location.origin}${location.pathname}?s=${S.serverId}`;
+  const s = server();
+  if (!s) return;
+  const url = `${location.origin}${location.pathname}` + (s.invite ? `?convite=${encodeURIComponent(s.invite)}` : '');
   try {
     await navigator.clipboard.writeText(url);
-    toast('Link de convite copiado!');
+    toast(s.invite ? 'Link de convite copiado! Quem abrir entra neste servidor.' : 'Link copiado! Este servidor é público.');
   } catch {
     toast(url, 8000);
   }
@@ -1588,6 +1611,7 @@ $('#login-form').addEventListener('submit', (e) => {
   const name = nameInput.value.trim().slice(0, 32);
   if (!name) return;
   S.name = name;
+  S.loginRejected = false;
   store('ressoa.name', name);
   $('#login').hidden = true;
   $('#app').hidden = false;
