@@ -12,6 +12,10 @@ services:
       # Opcional: servidor TURN para redes que bloqueiam conexão direta.
       - key: TURN_URLS
         sync: false
+      # Preferido: segredo compartilhado com o coturn (use-auth-secret) -> credenciais temporárias.
+      - key: TURN_SECRET
+        sync: false
+      # Alternativa legada (usuário/senha fixos, entregues a todo usuário logado).
       - key: TURN_USERNAME
         sync: false
       - key: TURN_CREDENTIAL

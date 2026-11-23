@@ -1,0 +1,8 @@
+# Dados de execução (histórico de chat, contas) e segredos — nunca versionar.
+data/
+data.json
+cert/
+*.pem
+.env
+.env.*
+node_modules/
