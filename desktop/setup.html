@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+  <title>Ressoa</title>
+  <style>
+    :root { --bg:#0b0d12; --panel:#12151d; --line:#262b3a; --text:#e7eaf2; --muted:#8b93a7; --accent:#2dd4bf; --ink:#04201c; --danger:#f43f5e; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: grid; place-items: center; padding: 16px; color: var(--text);
+      font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1000px 500px at 15% 10%, rgba(45,212,191,.12), transparent 60%), var(--bg);
+    }
+    form { width: min(440px, 100%); display: grid; gap: 12px; padding: 32px; background: var(--panel); border: 1px solid var(--line); border-radius: 20px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 800; }
+    .mark { display: inline-flex; align-items: center; gap: 3px; height: 34px; padding: 0 8px; background: var(--accent); border-radius: 10px; }
+    .mark i { width: 3px; border-radius: 2px; background: var(--ink); }
+    p { margin: 0; color: var(--muted); }
+    label { font-weight: 600; margin-top: 6px; }
+    input { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; font: inherit; outline: none; }
+    input:focus { border-color: var(--accent); }
+    button { border: 0; border-radius: 10px; padding: 11px 16px; font: inherit; font-weight: 700; cursor: pointer; }
+    .primary { background: var(--accent); color: var(--ink); }
+    .ghost { background: transparent; color: var(--muted); text-align: left; padding: 4px 0; }
+    .ghost:hover { color: var(--text); }
+    .error { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <form id="f">
+    <div class="brand"><span class="mark"><i style="height:10px"></i><i style="height:18px"></i><i style="height:14px"></i><i style="height:8px"></i></span>Ressoa</div>
+    <p>Informe o endereço do servidor Ressoa que você e seus amigos usam.</p>
+    <p id="err" class="error" hidden></p>
+    <label for="url">Endereço do servidor</label>
+    <input id="url" placeholder="https://ressoa-abcd.onrender.com" autocomplete="url" required />
+    <button class="primary" type="submit">Conectar</button>
+    <button class="ghost" type="button" id="local">Usar servidor neste computador (localhost:3000)</button>
+  </form>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const input = document.getElementById('url');
+    const err = document.getElementById('err');
+    const show = (msg) => { err.textContent = msg; err.hidden = !msg; };
+    if (params.get('erro')) show('Não foi possível abrir ' + (params.get('url') || 'o servidor') + ': ' + params.get('erro') + '. Confira o endereço ou tente de novo.');
+    window.ressoaDesktop.getSetup().then((s) => { input.value = params.get('url') || s.serverUrl || ''; input.focus(); });
+    async function save(value) {
+      show('');
+      const r = await window.ressoaDesktop.saveServer(value);
+      if (r && !r.ok) show(r.error);
+    }
+    document.getElementById('f').addEventListener('submit', (e) => { e.preventDefault(); save(input.value); });
+    document.getElementById('local').addEventListener('click', () => save('http://localhost:3000'));
+  </script>
+</body>
+</html>
